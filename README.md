@@ -1,4 +1,4 @@
-# pgv-cli
+# pfv-cli
 CLI tool for encoding PFV video files
 
 ## Installation
