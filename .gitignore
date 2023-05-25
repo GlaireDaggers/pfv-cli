@@ -1,0 +1,6 @@
+/target
+/test_frames
+/.vscode
+*.png
+*.wav
+*.pfv
