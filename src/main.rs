@@ -1,9 +1,18 @@
 use std::{path::Path, fs::File};
 
+use std::io::stdout;
+
+use crossterm::cursor::MoveToColumn;
+use crossterm::terminal::ClearType;
+use crossterm::{
+    execute,
+    style::Print,
+    terminal::Clear,
+};
+
 use clap::Parser;
 use pfv_rs::{enc::Encoder, frame::VideoFrame, plane::VideoPlane};
 use image::{io::Reader as ImageReader};
-use wav::{Header, WAV_FORMAT_PCM, BitDepth};
 
 #[derive(Parser, Debug)]
 #[command(author = "Hazel Stagner <glairedaggers@gmail.com>")]
@@ -18,9 +27,6 @@ struct Args {
 
     #[arg(short = 'f')]
     fps: u32,
-    
-    #[arg(short = 'a')]
-    audiopath: Option<String>,
 
     #[arg(short = 'q')]
     quality: Option<i32>,
@@ -85,23 +91,16 @@ fn main() {
     // read first image from path
     let frame0 = load_frame(format!("{}/001.png", cli.framepath));
 
-    let (audio_header, audio_data) = match &cli.audiopath {
-        Some(audiopath) => {
-            let mut inp_audio_file = File::open(audiopath).unwrap();
-            wav::read(&mut inp_audio_file).unwrap()
-        }
-        None => {
-            (Header::new(WAV_FORMAT_PCM, 2, 44100, 16),
-                BitDepth::Sixteen(Vec::new()))
-        }
-    };
-
-    let mut enc = Encoder::new(frame0.width, frame0.height, cli.fps, audio_header.sampling_rate, audio_header.channel_count as u32, q, threads as usize);
+    let mut enc = Encoder::new(frame0.width, frame0.height, cli.fps, q, threads as usize);
 
     // encode frames
     enc.encode_iframe(&frame0);
-    println!("Encoded: 1 / {}", cli.numframes);
 
+    execute!(
+        stdout(),
+        Print(format!("Encoded: 1 / {}", cli.numframes)),
+    ).unwrap();
+    
     for i in 1..cli.numframes {
         let framepath = format!("{}/{:0>3}.png", cli.framepath, i + 1);
         let frame = load_frame(framepath);
@@ -112,33 +111,18 @@ fn main() {
             enc.encode_pframe(&frame);
         }
 
-        println!("Encoded: {} / {}", i + 1, cli.numframes);
+        execute!(
+            stdout(),
+            Clear(ClearType::CurrentLine),
+            MoveToColumn(0),
+            Print(format!("Encoded: {} / {}", i + 1, cli.numframes)),
+        ).unwrap();
     }
 
-    // encode audio data
-    if cli.audiopath.is_some() {
-        let audio_data: Vec<i16> = match audio_data {
-            wav::BitDepth::Eight(v) => {
-                v.iter().map(|x| {
-                    let f = (*x as f32 / 128.0) - 1.0;
-                    (f * 32768.0) as i16
-                }).collect()
-            }
-            wav::BitDepth::Sixteen(v) => {
-                v
-            }
-            wav::BitDepth::ThirtyTwoFloat(v) => {
-                v.iter().map(|x| {
-                    (*x * 32768.0) as i16
-                }).collect()
-            }
-            _ => {
-                panic!("Not implemented")
-            }
-        };
-
-        enc.append_audio(&audio_data);
-    }
+    execute!(
+        stdout(),
+        Print("\nFinished encoding!\n"),
+    ).unwrap();
 
     let mut outfile = File::create(cli.outpath).unwrap();
     enc.write(&mut outfile).unwrap();
