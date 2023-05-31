@@ -17,7 +17,7 @@ use image::{io::Reader as ImageReader};
 #[derive(Parser, Debug)]
 #[command(author = "Hazel Stagner <glairedaggers@gmail.com>")]
 #[command(version = "1.0")]
-#[command(about = "Command line utility for encoding PGV video files", long_about = None)]
+#[command(about = "Command line utility for encoding PFV video files", long_about = None)]
 struct Args {
     #[arg(short = 'i')]
     framepath: String,
@@ -30,6 +30,9 @@ struct Args {
 
     #[arg(short = 'q')]
     quality: Option<i32>,
+
+    #[arg(short = 'k')]
+    keyframe_interval: Option<u32>,
 
     #[arg(short = 't')]
     threads: Option<i32>,
@@ -88,13 +91,19 @@ fn main() {
         }
     };
 
+    let keyframe_interval = match cli.keyframe_interval {
+        None => 30,
+        Some(v) => v
+    };
+
     // read first image from path
     let frame0 = load_frame(format!("{}/001.png", cli.framepath));
 
-    let mut enc = Encoder::new(frame0.width, frame0.height, cli.fps, q, threads as usize);
+    let outfile = File::create(cli.outpath).unwrap();
+    let mut enc = Encoder::new(outfile, frame0.width, frame0.height, cli.fps, q, threads as usize).unwrap();
 
     // encode frames
-    enc.encode_iframe(&frame0);
+    enc.encode_iframe(&frame0).unwrap();
 
     execute!(
         stdout(),
@@ -105,10 +114,10 @@ fn main() {
         let framepath = format!("{}/{:0>3}.png", cli.framepath, i + 1);
         let frame = load_frame(framepath);
 
-        if i % 30 == 0 {
-            enc.encode_iframe(&frame);
+        if i % keyframe_interval == 0 {
+            enc.encode_iframe(&frame).unwrap();
         } else {
-            enc.encode_pframe(&frame);
+            enc.encode_pframe(&frame).unwrap();
         }
 
         execute!(
@@ -124,6 +133,5 @@ fn main() {
         Print("\nFinished encoding!\n"),
     ).unwrap();
 
-    let mut outfile = File::create(cli.outpath).unwrap();
-    enc.write(&mut outfile).unwrap();
+    enc.finish().unwrap();
 }

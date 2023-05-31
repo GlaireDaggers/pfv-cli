@@ -19,6 +19,7 @@ Options:
   -n <NUMFRAMES>
   -f <FPS>
   -q <QUALITY>
+  -k <KEYFRAME_INTERVAL>
   -t <THREADS>
   -o <OUTPATH>
   -h, --help          Print help
