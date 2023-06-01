@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "pfv-cli"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "clap",
  "crossterm",
@@ -615,9 +615,9 @@ dependencies = [
 
 [[package]]
 name = "pfv-rs"
-version = "0.1.6"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ec69a24c8c3d6bc1fddf75a38b2cec40252c0a0dc7de171bda46d142f832796"
+checksum = "80923118ce38fb6801dbd88050820110c4be283220649f881e9484d004b5d063"
 dependencies = [
  "bitstream-io",
  "byteorder",
