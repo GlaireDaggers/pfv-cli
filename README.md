@@ -9,15 +9,15 @@ cargo install pfv-cli
 
 ## Usage
 
-Takes as input a folder containing named PNG files (as 001.png, 002.png, etc) and produces an encoded PFV video file
+Takes as input a .Y4M video and produces an encoded PFV video file
+
+Currently only 8bpp input supported, and only whole number framerates supported.
 
 ```
 Usage: pfv-cli.exe [OPTIONS] -i <FRAMEPATH> -n <NUMFRAMES> -f <FPS> -o <OUTPATH>
 
 Options:
-  -i <FRAMEPATH>
-  -n <NUMFRAMES>
-  -f <FPS>
+  -i <INPATH>
   -q <QUALITY>
   -k <KEYFRAME_INTERVAL>
   -t <THREADS>

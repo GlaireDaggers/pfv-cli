@@ -1,4 +1,4 @@
-use std::{path::Path, fs::File};
+use std::fs::File;
 
 use std::io::stdout;
 
@@ -12,7 +12,8 @@ use crossterm::{
 
 use clap::Parser;
 use pfv_rs::{enc::Encoder, frame::VideoFrame, plane::VideoPlane};
-use image::{io::Reader as ImageReader};
+use resize::Pixel::Gray8;
+use rgb::FromSlice;
 
 #[derive(Parser, Debug)]
 #[command(author = "Hazel Stagner <glairedaggers@gmail.com>")]
@@ -20,14 +21,8 @@ use image::{io::Reader as ImageReader};
 #[command(about = "Command line utility for encoding PFV video files", long_about = None)]
 struct Args {
     #[arg(short = 'i')]
-    framepath: String,
+    inpath: String,
     
-    #[arg(short = 'n')]
-    numframes: u32,
-
-    #[arg(short = 'f')]
-    fps: u32,
-
     #[arg(short = 'q')]
     quality: Option<i32>,
 
@@ -41,30 +36,7 @@ struct Args {
     outpath: String,
 }
 
-fn load_frame<Q: AsRef<Path>>(path: Q) -> VideoFrame {
-    let src_img = ImageReader::open(path).unwrap().decode().unwrap().into_rgb8();
-    
-    let yuv_pixels: Vec<[u8;3]> = src_img.pixels().map(|rgb| {
-        // https://en.wikipedia.org/wiki/YCbCr - "JPEG Conversion"
-        let y = (0.299 * rgb.0[0] as f32) + (0.587 * rgb.0[1] as f32) + (0.114 * rgb.0[2] as f32);
-        let u = 128.0 - (0.168736 * rgb.0[0] as f32) - (0.331264 * rgb.0[1] as f32) + (0.5 * rgb.0[2] as f32);
-        let v = 128.0 + (0.5 * rgb.0[0] as f32) - (0.418688 * rgb.0[1] as f32) - (0.081312 * rgb.0[2] as f32);
-        [y as u8, u as u8, v as u8]
-    }).collect();
-
-    // split into three planes
-    let y_buffer: Vec<_> = yuv_pixels.iter().map(|x| x[0]).collect();
-    let u_buffer: Vec<_> = yuv_pixels.iter().map(|x| x[1]).collect();
-    let v_buffer: Vec<_> = yuv_pixels.iter().map(|x| x[2]).collect();
-
-    let y_plane = VideoPlane::from_slice(src_img.width() as usize, src_img.height() as usize, &y_buffer);
-    let u_plane = VideoPlane::from_slice(src_img.width() as usize, src_img.height() as usize, &u_buffer);
-    let v_plane = VideoPlane::from_slice(src_img.width() as usize, src_img.height() as usize, &v_buffer);
-
-    VideoFrame::from_planes(src_img.width() as usize, src_img.height() as usize, y_plane, u_plane, v_plane)
-}
-
-fn main() {
+fn main() -> Result<(), ()> {
     let cli = Args::parse();
 
     let q = match cli.quality {
@@ -96,36 +68,103 @@ fn main() {
         Some(v) => v
     };
 
-    // read first image from path
-    let frame0 = load_frame(format!("{}/001.png", cli.framepath));
+    let input_file = File::open(cli.inpath).unwrap();
+    let mut y4m_dec = y4m::decode(input_file).unwrap();
+
+    match y4m_dec.get_bit_depth() {
+        8 => {}
+        _ => {
+            println!("Only 8bpp input supported");
+            return Err(());
+        }
+    }
+
+    let luma_w = y4m_dec.get_width();
+    let luma_h = y4m_dec.get_height();
+
+    let (chroma_w, chroma_h) = match y4m_dec.get_colorspace() {
+        y4m::Colorspace::C420jpeg => {
+            (luma_w / 2, luma_h / 2)
+        }
+        y4m::Colorspace::C420paldv => {
+            (luma_w / 2, luma_h / 2)
+        }
+        y4m::Colorspace::C420mpeg2 => {
+            (luma_w / 2, luma_h / 2)
+        }
+        y4m::Colorspace::C420 => {
+            (luma_w / 2, luma_h / 2)
+        }
+        y4m::Colorspace::C422 => {
+            (luma_w / 2, luma_h)
+        }
+        y4m::Colorspace::C444 => {
+            (luma_w, luma_h)
+        }
+        _ => {
+            println!("Only 4:2:0, 4:2:2, or 4:4:4 input supported");
+            return Err(());
+        }
+    };
+    
+    let mut chroma_resizer = resize::new(chroma_w, chroma_h,
+        luma_w, luma_h,
+        Gray8, resize::Type::Lanczos3).unwrap();
+
+    let fr = y4m_dec.get_framerate();
+
+    if fr.num % fr.den != 0 {
+        println!("Fractional framerates not supported");
+        return Err(());
+    }
+
+    let framerate = (fr.num / fr.den) as u32;
 
     let outfile = File::create(cli.outpath).unwrap();
-    let mut enc = Encoder::new(outfile, frame0.width, frame0.height, cli.fps, q, threads as usize).unwrap();
+    let mut enc = Encoder::new(outfile, luma_w, luma_h, framerate, q, threads as usize).unwrap();
 
-    // encode frames
-    enc.encode_iframe(&frame0).unwrap();
+    let mut tmp_buf_u = vec![0;luma_w * luma_h];
+    let mut tmp_buf_v = vec![0;luma_w * luma_h];
 
-    execute!(
-        stdout(),
-        Print(format!("Encoded: 1 / {}", cli.numframes)),
-    ).unwrap();
-    
-    for i in 1..cli.numframes {
-        let framepath = format!("{}/{:0>3}.png", cli.framepath, i + 1);
-        let frame = load_frame(framepath);
+    let mut outframe = 0;
 
-        if i % keyframe_interval == 0 {
-            enc.encode_iframe(&frame).unwrap();
-        } else {
-            enc.encode_pframe(&frame).unwrap();
+    loop {
+        match y4m_dec.read_frame() {
+            Ok(frame) => {
+                chroma_resizer.resize(frame.get_u_plane().as_gray(), &mut tmp_buf_u.as_gray_mut()).unwrap();
+                chroma_resizer.resize(frame.get_v_plane().as_gray(), &mut tmp_buf_v.as_gray_mut()).unwrap();
+
+                let plane_y = VideoPlane::from_slice(luma_w, luma_h, frame.get_y_plane());
+                let plane_u = VideoPlane::from_slice(luma_w, luma_h, &tmp_buf_u);
+                let plane_v = VideoPlane::from_slice(luma_w, luma_h, &tmp_buf_v);
+
+                let fr = VideoFrame::from_planes(luma_w, luma_h, plane_y, plane_u, plane_v);
+
+                if (outframe % keyframe_interval) == 0 {
+                    enc.encode_iframe(&fr).unwrap();
+                } else {
+                    enc.encode_pframe(&fr).unwrap();
+                }
+
+                outframe += 1;
+
+                execute!(
+                    stdout(),
+                    Clear(ClearType::CurrentLine),
+                    MoveToColumn(0),
+                    Print(format!("Encoded: {}", outframe)),
+                ).unwrap();
+            }
+            Err(e) => match e {
+                y4m::Error::EOF => {
+                    break;
+                }
+                _ => {
+                    println!("Error reading input: {:?}", e);
+                    return Err(());
+                }
+            }
         }
-
-        execute!(
-            stdout(),
-            Clear(ClearType::CurrentLine),
-            MoveToColumn(0),
-            Print(format!("Encoded: {} / {}", i + 1, cli.numframes)),
-        ).unwrap();
     }
 
     execute!(
@@ -134,4 +173,5 @@ fn main() {
     ).unwrap();
 
     enc.finish().unwrap();
+    return Ok(());
 }
