@@ -1,6 +1,6 @@
 [package]
 name = "pfv-cli"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["Hazel Stagner"]
 description = "A CLI tool for encoding PFV video files"
