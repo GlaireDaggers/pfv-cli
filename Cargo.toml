@@ -13,7 +13,7 @@ keywords = ["codec", "video", "av"]
 [dependencies]
 clap = { version = "4.2.7", features = ["derive"] }
 crossterm = "0.26.1"
-pfv-rs = "0.1.7"
+pfv-rs = "0.2.1"
 resize = "0.7.4"
 rgb = "0.8.36"
 y4m = "0.8.0"
