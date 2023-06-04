@@ -1,6 +1,6 @@
 [package]
 name = "pfv-cli"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 authors = ["Hazel Stagner"]
 description = "A CLI tool for encoding PFV video files"
@@ -13,7 +13,7 @@ keywords = ["codec", "video", "av"]
 [dependencies]
 clap = { version = "4.2.7", features = ["derive"] }
 crossterm = "0.26.1"
-pfv-rs = "0.2.1"
+pfv-rs = "0.2.2"
 resize = "0.7.4"
 rgb = "0.8.36"
 y4m = "0.8.0"
